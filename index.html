@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BMKG Disaster Hub</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <header>
+        <div>
+            <h1 style="font-size: 1.1rem; font-weight: 800; text-transform: uppercase;">Portal Pantau Bencana & Mitigasi
+                BMKG</h1>
+            <div style="font-size: 0.75rem; color: var(--text-sub); margin-top: 0.2rem;" id="sys-sync-tag">Menghubungkan
+                jaringan...</div>
+        </div>
+        <div class="search-box">
+            <input type="text" id="loc-search-input" class="input-field"
+                placeholder="Ketik nama kota/daerah (cth: Surabaya, Bandung, Padang)...">
+            <button class="btn btn-primary" onclick="searchLocationByName()">Cari Wilayah</button>
+            <button class="btn" onclick="detectCurrentGeoLocation()">Gunakan GPS Saya</button>
+        </div>
+    </header>
+
+    <main class="dashboard-grid">
+        <div class="hero-card">
+            <div>
+                <div style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;"
+                    id="current-loc-name">MENGAMBIL LOKASI...</div>
+                <div class="temp-huge" id="current-temp">--°C</div>
+                <div style="font-size: 1.25rem; font-weight: 700;" id="current-weather-desc">Memuat cuaca...</div>
+                <div class="hero-meta">
+                    <span id="hero-humidity">Kelembapan: --%</span>
+                    <span id="hero-wind">Angin: -- km/j</span>
+                    <span id="hero-coords">Koordinat: --, --</span>
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 0.75rem; opacity: 0.85;">STATUS KUALITAS UDARA
+                    <span class="tooltip-wrap" tabindex="0">
+                        <span class="help-icon">?</span>
+                        <span class="tooltip-box">Konsentrasi PM2.5 (partikel polusi halus berukuran ≤2.5 mikron) per
+                            meter kubik udara.</span>
+                    </span>
+                </div>
+                <div style="font-size: 2.2rem; font-weight: 900;" id="hero-aqi">--</div>
+                <div class="badge badge-warn" id="hero-aqi-label">Sedang</div>
+            </div>
+        </div>
+
+        <div class="panel col-8">
+            <div class="panel-header">
+                <span class="panel-title">Prediksi Per Jam (Open-Meteo Synced with BMKG Coords)</span>
+                <button class="btn" style="padding: 0.35rem 0.65rem;" onclick="openWeatherModal()">10 Jam
+                    Detail</button>
+            </div>
+            <div class="forecast-slider" id="weather-slider"></div>
+
+            <div class="weather-metrics-grid">
+                <div class="metric-mini-card">
+                    <span class="m-label">
+                        Indeks UV
+                        <span class="tooltip-wrap" tabindex="0">
+                            <span class="help-icon">?</span>
+                            <span class="tooltip-box">Skala radiasi ultraviolet matahari (0-11+). Level 6 ke atas perlu
+                                perlindungan tabir surya/topi.</span>
+                        </span>
+                    </span>
+                    <span class="m-val" id="uv-val">--</span>
+                    <span class="m-sub" id="uv-desc">Kategori: --</span>
+                </div>
+
+                <div class="metric-mini-card">
+                    <span class="m-label">
+                        Jarak Pandang
+                        <span class="tooltip-wrap" tabindex="0">
+                            <span class="help-icon">?</span>
+                            <span class="tooltip-box">Jarak horizontal terjauh objek bisa terlihat jelas. Berkurang
+                                drastis saat hujan lebat atau kabut/asap.</span>
+                        </span>
+                    </span>
+                    <span class="m-val" id="vis-val">-- km</span>
+                    <span class="m-sub">Visibilitas Lapangan</span>
+                </div>
+
+                <div class="metric-mini-card">
+                    <span class="m-label">
+                        Tekanan Udara
+                        <span class="tooltip-wrap" tabindex="0">
+                            <span class="help-icon">?</span>
+                            <span class="tooltip-box">Tekanan atmosfer setara permukaan laut (MSL). Penurunan mendadak (
+                                <1010 hPa) menandakan potensi badai.</span>
+                            </span>
+                        </span>
+                        <span class="m-val" id="pres-val">-- hPa</span>
+                        <span class="m-sub">Permukaan Laut (MSL)</span>
+                </div>
+
+                <div class="metric-mini-card">
+                    <span class="m-label">
+                        Tutupan Awan
+                        <span class="tooltip-wrap" tabindex="0">
+                            <span class="help-icon">?</span>
+                            <span class="tooltip-box">Persentase langit yang tertutup awan. 0% cerah total, 100% langit
+                                mendung tertutup penuh.</span>
+                        </span>
+                    </span>
+                    <span class="m-val" id="cloud-val">--%</span>
+                    <span class="m-sub">Opasitas Langit</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel col-4">
+            <div class="panel-header">
+                <span class="panel-title" style="color: var(--danger);">Gempa Terkini (BMKG InaTEWS)</span>
+                <button class="btn" style="padding: 0.35rem 0.65rem;" onclick="openQuakeModal()">10 Riwayat
+                    Gempa</button>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <span style="font-size: 2rem; font-weight: 900; color: var(--danger);" id="qk-mag">-- SR</span>
+                <span class="badge badge-warn" id="qk-potensi">Memuat</span>
+            </div>
+            <div class="data-row">
+                <span class="data-k">Waktu Deteksi</span>
+                <span class="data-v" id="qk-time">--</span>
+            </div>
+            <div class="data-row">
+                <span class="data-k">Pusat Gempa</span>
+                <span class="data-v" id="qk-loc">--</span>
+            </div>
+            <div class="data-row">
+                <span class="data-k">
+                    Kedalaman
+                    <span class="tooltip-wrap" tabindex="0">
+                        <span class="help-icon">?</span>
+                        <span class="tooltip-box">Jarak hiposentrum dari permukaan bumi. Gempa dangkal (&lt;60 km)
+                            memicu guncangan jauh lebih merusak.</span>
+                    </span>
+                </span>
+                <span class="data-v" id="qk-depth">--</span>
+            </div>
+        </div>
+
+        <div class="panel col-12">
+            <div class="panel-header">
+                <span class="panel-title">Mitigasi Tanggap Darurat: Fasilitas Terganggu / Hilang</span>
+                <span id="task-counter" style="font-size: 0.75rem; color: var(--text-sub);">0 Catatan</span>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <input type="text" id="task-text" class="input-field"
+                    placeholder="Catat kerusakan darurat: Genset solar padam, atap rubuh, suplai air terputus...">
+                <select id="task-prio" class="input-field" style="max-width: 200px; flex: none;">
+                    <option value="CRITICAL">Tingkat Kritis (Air/Listrik/Medis)</option>
+                    <option value="HIGH">Tinggi (Akses/Jalan/Sembako)</option>
+                    <option value="NORMAL">Normal (Barang Inventaris)</option>
+                </select>
+                <button class="btn btn-primary" id="btn-task-submit" onclick="handleTaskSubmit()">Tambah
+                    Fasilitas</button>
+            </div>
+            <ul class="todo-list" id="task-container"></ul>
+        </div>
+    </main>
+
+    <div class="modal-backdrop" id="modal-box">
+        <div class="modal-box">
+            <div class="panel-header">
+                <span class="panel-title" id="modal-title">Riwayat Lengkap</span>
+                <button class="btn" style="padding: 0.35rem 0.65rem;" onclick="closeModal()">Tutup</button>
+            </div>
+            <div id="modal-content" style="display: flex; flex-direction: column; gap: 0.65rem;"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
