@@ -46,8 +46,8 @@ async function fetchJsonSafe(targetUrl) {
     } catch (e) { }
 
     const proxies = [
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`
     ];
 
     for (const proxy of proxies) {
@@ -88,6 +88,7 @@ async function detectCurrentGeoLocation() {
 async function searchLocationByName() {
     if (isSearching) return;
     const inputEl = document.getElementById('loc-search-input');
+    if (!inputEl) return;
     const q = inputEl.value.trim();
     if (!q) return;
 
@@ -134,10 +135,27 @@ async function reverseGeocode(lat, lon) {
     }
 }
 
+function setSliderPlaceholder() {
+    const slider = document.getElementById('weather-slider');
+    if (!slider || slider.children.length > 0) return;
+    slider.innerHTML = '';
+    for (let i = 0; i < 6; i++) {
+        const skeleton = document.createElement('div');
+        skeleton.className = 'forecast-chip';
+        skeleton.style.opacity = '0.35';
+        skeleton.innerHTML = `
+            <div style="font-size:0.7rem; color:var(--text-sub);">--:--</div>
+            <div style="font-size:1rem; font-weight:800;">--°C</div>
+            <div style="font-size:0.65rem;">--</div>
+        `;
+        slider.appendChild(skeleton);
+    }
+}
+
 async function loadWeatherData() {
     if (!activeLat || !activeLon) return;
     try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${activeLat}&longitude=${activeLon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,surface_pressure,cloud_cover&hourly=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,uv_index,visibility&timezone=Asia%2FJakarta`;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${activeLat}&longitude=${activeLon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,dew_point_2m,weather_code,wind_speed_10m,surface_pressure,cloud_cover&hourly=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,uv_index,visibility&timezone=Asia%2FJakarta`;
         const res = await fetch(url);
         if (!res.ok) throw new Error("Koneksi Open-Meteo gagal");
         const data = await res.json();
@@ -155,6 +173,24 @@ async function loadWeatherData() {
             80: 'Hujan Mendadak', 95: 'Badai Petir'
         };
         document.getElementById('current-weather-desc').textContent = weatherDescriptions[data.current.weather_code] || 'Berawan';
+
+        const feelsLike = data.current.apparent_temperature !== undefined ? Math.round(data.current.apparent_temperature) : Math.round(data.current.temperature_2m);
+        const dewPoint = data.current.dew_point_2m !== undefined ? Math.round(data.current.dew_point_2m) : '--';
+
+        document.getElementById('feels-like-val').textContent = `${feelsLike}°C`;
+        document.getElementById('dew-point-val').textContent = typeof dewPoint === 'number' ? `${dewPoint}°C` : dewPoint;
+
+        const envStatus = document.getElementById('env-status-val');
+        if (feelsLike >= 35) {
+            envStatus.textContent = 'Sangat Terik';
+            envStatus.style.color = 'var(--danger)';
+        } else if (feelsLike >= 30) {
+            envStatus.textContent = 'Cukup Panas';
+            envStatus.style.color = 'var(--warning)';
+        } else {
+            envStatus.textContent = 'Normal Nyaman';
+            envStatus.style.color = 'var(--success)';
+        }
 
         const slider = document.getElementById('weather-slider');
         slider.innerHTML = '';
@@ -195,9 +231,9 @@ async function loadWeatherData() {
             const chip = document.createElement('div');
             chip.className = 'forecast-chip';
             chip.innerHTML = `
-                <div style="color: var(--text-sub); font-size: 0.75rem;">${escapeHtml(hourLabel)}</div>
-                <div style="font-size: 1.1rem; font-weight: 800;">${tempVal}°C</div>
-                <div style="font-size: 0.7rem;">${escapeHtml(desc)}</div>
+                <div style="color: var(--text-sub); font-size: 0.7rem;">${escapeHtml(hourLabel)}</div>
+                <div style="font-size: 1.05rem; font-weight: 800;">${tempVal}°C</div>
+                <div style="font-size: 0.65rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(desc)}</div>
             `;
             slider.appendChild(chip);
         }
@@ -215,22 +251,77 @@ async function loadAirQuality() {
         const data = await res.json();
         const aqiVal = Math.round(data.current.pm2_5);
 
-        document.getElementById('hero-aqi').textContent = `${aqiVal} µg/m³`;
+        document.getElementById('hero-aqi').innerHTML = `${aqiVal} <span class="aqi-unit">µg/m³</span>`;
         const badge = document.getElementById('hero-aqi-label');
 
         if (aqiVal <= 15) {
-            badge.textContent = "Kualitas Baik";
+            badge.textContent = "Baik";
             badge.className = "badge badge-good";
         } else if (aqiVal <= 55) {
-            badge.textContent = "Kualitas Sedang";
+            badge.textContent = "Sedang";
             badge.className = "badge badge-warn";
         } else {
-            badge.textContent = "Tidak Sehat (PM2.5)";
+            badge.textContent = "Tidak Sehat";
             badge.className = "badge badge-danger";
         }
     } catch (err) {
         document.getElementById('hero-aqi').textContent = "--";
         document.getElementById('hero-aqi-label').textContent = "Offline";
+    }
+}
+
+let lastNotifiedQuakeId = null;
+let isNotificationPermitted = false;
+
+async function requestNotificationPermission() {
+    if (!("Notification" in window)) {
+        alert("Peramban lo belum mendukung Web Notifications API.");
+        return;
+    }
+
+    if (Notification.permission === "granted") {
+        isNotificationPermitted = true;
+        updateNotifButtonState(true);
+        triggerNativeNotification("Notifikasi Aktif", "Lo bakal dapet sinyal instan saat ada update gempa baru.");
+        return;
+    }
+
+    if (Notification.permission !== "denied") {
+        const permission = await Notification.requestPermission();
+        if (permission === "granted") {
+            isNotificationPermitted = true;
+            updateNotifButtonState(true);
+            triggerNativeNotification("Notifikasi Berhasil Diaktifkan", "Pemantauan bencana berjalan di latar belakang.");
+        } else {
+            updateNotifButtonState(false);
+        }
+    }
+}
+
+function updateNotifButtonState(active) {
+    const btn = document.getElementById('btn-notif-toggle');
+    if (!btn) return;
+    if (active) {
+        btn.classList.add('notif-active');
+        btn.title = "Notifikasi Bencana Aktif";
+    } else {
+        btn.classList.remove('notif-active');
+        btn.title = "Aktifkan Notifikasi Bencana";
+    }
+}
+
+function triggerNativeNotification(title, bodyText) {
+    if (Notification.permission === "granted") {
+        try {
+            new Notification(title, {
+                body: bodyText,
+                icon: 'https://bmkg.go.id/asset/img/logo-bmkg.png',
+                tag: 'bmkg-disaster-alert',
+                renotify: true
+            });
+        } catch (e) {
+            console.warn("Notification error:", e);
+        }
     }
 }
 
@@ -242,6 +333,16 @@ async function loadQuakes() {
 
         if (list.length > 0) {
             const latest = list[0];
+            const currentQuakeId = `${latest.Tanggal}_${latest.Jam}_${latest.Coordinates}`;
+
+            if (lastNotifiedQuakeId && lastNotifiedQuakeId !== currentQuakeId) {
+                triggerNativeNotification(
+                    `PERINGATAN GEMPA M ${latest.Magnitude} SR`,
+                    `${latest.Wilayah} - Kedalaman: ${latest.Kedalaman}. ${latest.Potensi}`
+                );
+            }
+            lastNotifiedQuakeId = currentQuakeId;
+
             document.getElementById('qk-mag').textContent = `${latest.Magnitude} SR`;
             document.getElementById('qk-potensi').textContent = latest.Potensi;
             document.getElementById('qk-time').textContent = `${latest.Tanggal} ${latest.Jam}`;
@@ -257,16 +358,22 @@ async function loadQuakes() {
     }
 }
 
+function handleBackdropClick(e) {
+    if (e.target.id === 'modal-box') {
+        closeModal();
+    }
+}
+
 function renderTasks() {
     const container = document.getElementById('task-container');
     const counter = document.getElementById('task-counter');
     container.innerHTML = '';
-    counter.textContent = `${tasks.length} Catatan Fasilitas Terdaftar`;
+    counter.textContent = `${tasks.length} Catatan`;
 
     if (tasks.length === 0) {
         const emptyLi = document.createElement('li');
         emptyLi.style.cssText = 'padding: 1rem; text-align: center; color: var(--text-sub); font-size: 0.85rem;';
-        emptyLi.textContent = 'Tidak ada laporan kerusakan. Fasilitas beroperasi normal.';
+        emptyLi.textContent = 'Tidak ada catatan fasilitas darurat.';
         container.appendChild(emptyLi);
         return;
     }
@@ -284,38 +391,33 @@ function renderTasks() {
 
         const textDiv = document.createElement('div');
         textDiv.className = 'todo-text';
-        textDiv.style.cssText = 'font-weight: 700; font-size: 0.85rem;';
         textDiv.textContent = t.text;
 
         const metaDiv = document.createElement('div');
         metaDiv.className = 'todo-meta';
         metaDiv.innerHTML = `
             <span class="badge ${prioBadge}">${escapeHtml(t.prio)}</span>
-            <span>Dicatat: ${escapeHtml(t.time)}</span>
+            <span>${escapeHtml(t.time)}</span>
         `;
 
         contentDiv.appendChild(textDiv);
         contentDiv.appendChild(metaDiv);
 
         const actionsDiv = document.createElement('div');
-        actionsDiv.style.display = 'flex';
-        actionsDiv.style.gap = '0.35rem';
+        actionsDiv.className = 'todo-actions';
 
         const btnToggle = document.createElement('button');
-        btnToggle.className = 'btn';
-        btnToggle.style.cssText = 'padding: 0.35rem 0.65rem;';
-        btnToggle.textContent = t.done ? 'Aktifkan' : 'Selesai';
+        btnToggle.className = 'btn btn-sm';
+        btnToggle.textContent = t.done ? 'Aktif' : 'Selesai';
         btnToggle.onclick = () => toggleTask(t.id);
 
         const btnEdit = document.createElement('button');
-        btnEdit.className = 'btn';
-        btnEdit.style.cssText = 'padding: 0.35rem 0.65rem;';
+        btnEdit.className = 'btn btn-sm';
         btnEdit.textContent = 'Edit';
         btnEdit.onclick = () => editTask(t.id);
 
         const btnDelete = document.createElement('button');
-        btnDelete.className = 'btn btn-danger';
-        btnDelete.style.cssText = 'padding: 0.35rem 0.65rem;';
+        btnDelete.className = 'btn btn-sm btn-danger';
         btnDelete.textContent = 'Hapus';
         btnDelete.onclick = () => deleteTask(t.id);
 
@@ -339,23 +441,25 @@ function handleTaskSubmit() {
     const now = new Date();
     const timeStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    if (editTaskId) {
-        const item = tasks.find(t => t.id === editTaskId);
-        if (item) {
-            item.text = text;
-            item.prio = prio;
-            item.time = `${timeStr} (Diperbarui)`;
+    if (editTaskId !== null) {
+        const cleanEditId = String(editTaskId);
+        const targetIndex = tasks.findIndex(t => String(t.id) === cleanEditId);
+        if (targetIndex !== -1) {
+            tasks[targetIndex].text = text;
+            tasks[targetIndex].prio = prio;
+            tasks[targetIndex].time = `${timeStr} (Diperbarui)`;
         }
         editTaskId = null;
-        document.getElementById('btn-task-submit').textContent = 'Tambah Fasilitas';
+        document.getElementById('btn-task-submit').textContent = 'Tambah';
     } else {
-        tasks.unshift({
-            id: Date.now().toString(),
+        const newTask = {
+            id: String(Date.now()),
             text: text,
             prio: prio,
             done: false,
             time: timeStr
-        });
+        };
+        tasks.unshift(newTask);
     }
 
     input.value = '';
@@ -363,56 +467,67 @@ function handleTaskSubmit() {
     renderTasks();
 }
 
-function toggleTask(id) {
-    tasks = tasks.map(t => t.id === id ? { ...t, done: !t.done } : t);
+function deleteTask(targetId) {
+    const cleanId = String(targetId);
+    tasks = tasks.filter(t => String(t.id) !== cleanId);
+
+    if (editTaskId !== null && String(editTaskId) === cleanId) {
+        editTaskId = null;
+        document.getElementById('btn-task-submit').textContent = 'Tambah';
+        document.getElementById('task-text').value = '';
+    }
+
     localStorage.setItem('bmkg_facilities_list', JSON.stringify(tasks));
     renderTasks();
 }
 
-function editTask(id) {
-    const item = tasks.find(t => t.id === id);
+function toggleTask(targetId) {
+    const cleanId = String(targetId);
+    tasks = tasks.map(t => {
+        if (String(t.id) === cleanId) {
+            return { ...t, done: !t.done };
+        }
+        return t;
+    });
+
+    localStorage.setItem('bmkg_facilities_list', JSON.stringify(tasks));
+    renderTasks();
+}
+
+function editTask(targetId) {
+    const cleanId = String(targetId);
+    const item = tasks.find(t => String(t.id) === cleanId);
     if (!item) return;
     document.getElementById('task-text').value = item.text;
     document.getElementById('task-prio').value = item.prio;
-    editTaskId = id;
+    editTaskId = cleanId;
     document.getElementById('btn-task-submit').textContent = 'Simpan';
     document.getElementById('task-text').focus();
 }
 
-function deleteTask(id) {
-    tasks = tasks.filter(t => t.id !== id);
-    if (editTaskId === id) {
-        editTaskId = null;
-        document.getElementById('btn-task-submit').textContent = 'Tambah Fasilitas';
-        document.getElementById('task-text').value = '';
-    }
-    localStorage.setItem('bmkg_facilities_list', JSON.stringify(tasks));
-    renderTasks();
-}
-
 function openQuakeModal() {
-    document.getElementById('modal-title').textContent = '10 Riwayat Gempa Bumi BMKG Terakhir';
+    document.getElementById('modal-title').textContent = '10 Gempa Terakhir (BMKG M 5.0+)';
     const content = document.getElementById('modal-content');
     content.innerHTML = '';
 
     const top10 = rawQuakes.slice(0, 10);
     if (top10.length === 0) {
-        content.innerHTML = '<div style="font-size: 0.85rem; color: var(--text-sub);">Data InaTEWS BMKG tidak tersedia.</div>';
+        content.innerHTML = '<div style="font-size:0.85rem; color:var(--text-sub); padding:1rem; text-align:center;">Data BMKG tidak tersedia.</div>';
     } else {
         top10.forEach((q, idx) => {
             const item = document.createElement('div');
-            item.style.cssText = 'border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; background: var(--bg-canvas);';
+            item.className = 'modal-item-card';
             item.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-weight:900; color:var(--danger); font-size:0.95rem;">#${idx + 1} Magnitude ${escapeHtml(q.Magnitude)} SR</span>
+                    <span style="font-weight:900; color:var(--danger); font-size:1rem;">#${idx + 1} M ${escapeHtml(q.Magnitude)} SR</span>
                     <span style="font-size:0.75rem; color:var(--text-sub);">${escapeHtml(q.Tanggal)} ${escapeHtml(q.Jam)}</span>
                 </div>
-                <div style="font-weight:700; margin: 0.25rem 0; font-size: 0.85rem;">${escapeHtml(q.Wilayah)}</div>
-                <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-sub);">
+                <div style="font-weight:700; font-size:0.85rem;">${escapeHtml(q.Wilayah)}</div>
+                <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-sub); margin-top:0.25rem;">
                     <span>Kedalaman: ${escapeHtml(q.Kedalaman)}</span>
                     <span>Koordinat: ${escapeHtml(q.Coordinates)}</span>
                 </div>
-                <div style="font-size:0.75rem; color:var(--warning); font-weight:700; margin-top: 0.2rem;">${escapeHtml(q.Potensi)}</div>
+                <div style="font-size:0.75rem; color:var(--warning); font-weight:700; margin-top:0.25rem;">${escapeHtml(q.Potensi)}</div>
             `;
             content.appendChild(item);
         });
@@ -422,24 +537,24 @@ function openQuakeModal() {
 }
 
 function openWeatherModal() {
-    document.getElementById('modal-title').textContent = `10 Periode Prakiraan Cuaca Mendatang (${activePlaceName})`;
+    document.getElementById('modal-title').textContent = `Prakiraan Jam Mendatang (${activePlaceName})`;
     const content = document.getElementById('modal-content');
     content.innerHTML = '';
 
     const top10 = rawHourlyWeather.slice(0, 10);
     if (top10.length === 0) {
-        content.innerHTML = '<div style="font-size: 0.85rem; color: var(--text-sub);">Data prakiraan cuaca tidak tersedia.</div>';
+        content.innerHTML = '<div style="font-size:0.85rem; color:var(--text-sub); padding:1rem; text-align:center;">Prakiraan cuaca belum dimuat.</div>';
     } else {
         top10.forEach(w => {
             const item = document.createElement('div');
-            item.style.cssText = 'border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; background: var(--bg-canvas);';
+            item.className = 'modal-item-card';
             item.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-weight:800; color:var(--primary);">${escapeHtml(w.hour)} WIB</span>
-                    <span style="font-weight:900; font-size:1rem;">${escapeHtml(w.temp)}</span>
+                    <span style="font-weight:800; color:var(--primary); font-size:0.9rem;">Pukul ${escapeHtml(w.hour)} WIB</span>
+                    <span style="font-weight:900; font-size:1.1rem;">${escapeHtml(w.temp)}</span>
                 </div>
-                <div style="font-weight:700; font-size:0.85rem; margin:0.2rem 0;">${escapeHtml(w.desc)}</div>
-                <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-sub);">
+                <div style="font-weight:700; font-size:0.85rem;">${escapeHtml(w.desc)}</div>
+                <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-sub); margin-top:0.25rem;">
                     <span>Kelembapan: ${escapeHtml(w.hum)}</span>
                     <span>Angin: ${escapeHtml(w.wind)}</span>
                 </div>
@@ -455,6 +570,36 @@ function closeModal() {
     document.getElementById('modal-box').classList.remove('open');
 }
 
+function exportTasksToWhatsApp() {
+    if (!tasks || tasks.length === 0) {
+        alert("Belum ada catatan fasilitas darurat untuk diekspor.");
+        return;
+    }
+
+    const now = new Date();
+    const dateHeader = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WIB`;
+
+    let message = `*LAPORAN FASILITAS DARURAT BENCANA*\n`;
+    message += `Lokasi Pantau: ${activePlaceName || 'Tidak Diketahui'}\n`;
+    message += `Waktu Laporan: ${dateHeader}\n`;
+    message += `------------------------------------\n\n`;
+
+    tasks.forEach((t, idx) => {
+        const statusMark = t.done ? "[SELESAI]" : "[BELUM SELESAI]";
+        message += `${idx + 1}. *[${t.prio}]* ${t.text}\n`;
+        message += `   Status: ${statusMark}\n`;
+        message += `   Waktu Dicatat: ${t.time}\n\n`;
+    });
+
+    message += `------------------------------------\n`;
+    message += `_Dihasilkan via Portal Pantau Mitigasi BMKG_`;
+
+    const encodedText = encodeURIComponent(message);
+    const waUrl = `https://wa.me/?text=${encodedText}`;
+
+    window.open(waUrl, '_blank');
+}
+
 function refreshAllFeeds() {
     const now = new Date();
     updateStatusSync(`Sinkronisasi Data: ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WIB`);
@@ -463,11 +608,31 @@ function refreshAllFeeds() {
     loadQuakes();
 }
 
-document.getElementById('loc-search-input').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') searchLocationByName();
-});
-
 window.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('loc-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') searchLocationByName();
+        });
+    }
+
+    if ("Notification" in window && Notification.permission === "granted") {
+        isNotificationPermitted = true;
+        updateNotifButtonState(true);
+    }
+
+    setSliderPlaceholder();
     detectCurrentGeoLocation();
     renderTasks();
 });
+
+setInterval(() => {
+    loadQuakes();
+}, 120000);
+
+setInterval(() => {
+    loadWeatherData();
+    loadAirQuality();
+    const now = new Date();
+    updateStatusSync(`Sinkronisasi Data: ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WIB`);
+}, 900000);
