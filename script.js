@@ -251,7 +251,7 @@ async function loadAirQuality() {
         const data = await res.json();
         const aqiVal = Math.round(data.current.pm2_5);
 
-        document.getElementById('hero-aqi').innerHTML = `${aqiVal} <span class="aqi-unit">µg/m³</span>`;
+        document.getElementById('hero-aqi').textContent = aqiVal;
         const badge = document.getElementById('hero-aqi-label');
 
         if (aqiVal <= 15) {
@@ -310,7 +310,56 @@ function updateNotifButtonState(active) {
     }
 }
 
-function triggerNativeNotification(title, bodyText) {
+let notificationLogs = [];
+
+async function requestNotificationPermission() {
+    if (!("Notification" in window)) {
+        alert("Peramban lo belum mendukung Web Notifications API.");
+        return;
+    }
+
+    if (Notification.permission === "granted") {
+        openNotificationLogsModal();
+        return;
+    }
+
+    if (Notification.permission === "denied") {
+        alert("Izin notifikasi diblokir di peramban lo. Aktifkan manual lewat pengaturan situs di peramban ya.");
+        return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+        isNotificationPermitted = true;
+        updateNotifButtonState(true);
+
+        const initialMsg = "Sistem pemantauan aktif. Peringatan dini bencana akan muncul di sini secara instan.";
+        triggerNativeNotification("Notifikasi Bencana Aktif", initialMsg);
+
+        notificationLogs.unshift({
+            title: "Sistem Peringatan Diaktifkan",
+            desc: initialMsg,
+            time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + " WIB",
+            isAlert: false
+        });
+    } else {
+        updateNotifButtonState(false);
+    }
+}
+
+function triggerNativeNotification(title, bodyText, isEmergency = false) {
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')} WIB`;
+
+    notificationLogs.unshift({
+        title: title,
+        desc: bodyText,
+        time: timeStr,
+        isAlert: isEmergency
+    });
+
+    if (notificationLogs.length > 10) notificationLogs.pop();
+
     if (Notification.permission === "granted") {
         try {
             new Notification(title, {
@@ -320,25 +369,58 @@ function triggerNativeNotification(title, bodyText) {
                 renotify: true
             });
         } catch (e) {
-            console.warn("Notification error:", e);
+            console.warn("Gagal menampilkan pop-up native:", e);
         }
     }
 }
 
-async function loadQuakes() {
-    try {
-        const json = await fetchJsonSafe('https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json');
-        const list = (json.Infogempa && json.Infogempa.gempa) ? json.Infogempa.gempa : [];
-        rawQuakes = list;
+function openNotificationLogsModal() {
+    document.getElementById('modal-title').textContent = 'Pusat Log Notifikasi Sistem';
+    const content = document.getElementById('modal-content');
+    content.innerHTML = '';
 
-        if (list.length > 0) {
-            const latest = list[0];
+    if (notificationLogs.length === 0) {
+        content.innerHTML = `
+            <div style="text-align: center; padding: 2rem 1rem; color: var(--text-sub);">
+                <div style="font-size: 1.5rem; margin-bottom: 0.5rem; opacity: 0.6;">🔔</div>
+                <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-main);">Belum Ada Pemberitahuan Terbaru</div>
+                <div style="font-size: 0.75rem; margin-top: 0.35rem;">Sistem sedang bersiaga memantau sensor BMKG secara real-time.</div>
+            </div>
+        `;
+    } else {
+        notificationLogs.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'modal-item-card';
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.25rem;">
+                    <span style="font-weight:800; font-size: 0.85rem; color: ${item.isAlert ? 'var(--danger)' : 'var(--primary)'};">
+                        ${escapeHtml(item.title)}
+                    </span>
+                    <span style="font-size:0.7rem; color:var(--text-sub);">${escapeHtml(item.time)}</span>
+                </div>
+                <div style="font-size:0.78rem; color:var(--text-main); line-height: 1.4;">${escapeHtml(item.desc)}</div>
+            `;
+            content.appendChild(card);
+        });
+    }
+
+    document.getElementById('modal-box').classList.add('open');
+}
+
+async function loadQuakes() {
+    const timestamp = Date.now();
+    try {
+        const autoJson = await fetchJsonSafe(`https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json?_=${timestamp}`);
+
+        if (autoJson && autoJson.Infogempa && autoJson.Infogempa.gempa) {
+            const latest = autoJson.Infogempa.gempa;
             const currentQuakeId = `${latest.Tanggal}_${latest.Jam}_${latest.Coordinates}`;
 
             if (lastNotifiedQuakeId && lastNotifiedQuakeId !== currentQuakeId) {
                 triggerNativeNotification(
                     `PERINGATAN GEMPA M ${latest.Magnitude} SR`,
-                    `${latest.Wilayah} - Kedalaman: ${latest.Kedalaman}. ${latest.Potensi}`
+                    `${latest.Wilayah} | Kedalaman: ${latest.Kedalaman} | ${latest.Potensi}`,
+                    true
                 );
             }
             lastNotifiedQuakeId = currentQuakeId;
@@ -348,13 +430,32 @@ async function loadQuakes() {
             document.getElementById('qk-time').textContent = `${latest.Tanggal} ${latest.Jam}`;
             document.getElementById('qk-loc').textContent = latest.Wilayah;
             document.getElementById('qk-depth').textContent = latest.Kedalaman;
-        } else {
-            throw new Error("Payload gempa kosong");
+
+            const shakeImg = document.getElementById('shakemap-img');
+            if (shakeImg && latest.Shakemap) {
+                shakeImg.src = `https://data.bmkg.go.id/DataMKG/TEWS/${latest.Shakemap}?_=${timestamp}`;
+            }
+        }
+
+        const listJson = await fetchJsonSafe(`https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json?_=${timestamp}`);
+        if (listJson && listJson.Infogempa && listJson.Infogempa.gempa) {
+            rawQuakes = listJson.Infogempa.gempa;
         }
     } catch (err) {
-        document.getElementById('qk-loc').textContent = 'Server TEWS BMKG tidak terjangkau.';
-        document.getElementById('qk-mag').textContent = '--';
-        document.getElementById('qk-potensi').textContent = 'Status Tak Tentu';
+        try {
+            const fallbackJson = await fetchJsonSafe(`https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json?_=${timestamp}`);
+            if (fallbackJson && fallbackJson.Infogempa && fallbackJson.Infogempa.gempa) {
+                rawQuakes = fallbackJson.Infogempa.gempa;
+                const latest = rawQuakes[0];
+                document.getElementById('qk-mag').textContent = `${latest.Magnitude} SR`;
+                document.getElementById('qk-potensi').textContent = latest.Potensi;
+                document.getElementById('qk-time').textContent = `${latest.Tanggal} ${latest.Jam}`;
+                document.getElementById('qk-loc').textContent = latest.Wilayah;
+                document.getElementById('qk-depth').textContent = latest.Kedalaman;
+            }
+        } catch (e) {
+            document.getElementById('qk-loc').textContent = 'Server TEWS BMKG sedang sinkronisasi.';
+        }
     }
 }
 
