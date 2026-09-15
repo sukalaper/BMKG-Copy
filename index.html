@@ -33,22 +33,25 @@
         <div class="panel col-5 hero-panel">
             <div class="hero-top">
                 <div class="hero-left">
-                    <div class="hero-loc" id="current-loc-name">MENGAMBIL LOKASI...</div>
-                    <div class="temp-huge" id="current-temp">--°C</div>
-                    <div class="hero-condition" id="current-weather-desc">Memuat cuaca...</div>
+                    <div class="hero-loc" id="current-loc-name">DKI JAKARTA (DEFAULT)</div>
+                    <div class="temp-huge" id="current-temp">33°C</div>
+                    <div class="hero-condition" id="current-weather-desc">Berawan Tebal</div>
                 </div>
                 <div class="aqi-card-mini">
-                    <div class="aqi-top-row">
+                    <div class="aqi-header">
                         <div class="aqi-label-wrap">
-                            <span>PM2.5</span>
+                            <span class="aqi-title">PM2.5</span>
                             <span class="tooltip-wrap" tabindex="0">
                                 <span class="help-icon">?</span>
                                 <span class="tooltip-box">Partikulat halus ≤2.5 mikron per m³ udara.</span>
                             </span>
                         </div>
-                        <div class="badge badge-warn" id="hero-aqi-label">Sedang</div>
+                        <span class="badge badge-warn" id="hero-aqi-label">SEDANG</span>
                     </div>
-                    <div class="aqi-val" id="hero-aqi">-- <span class="aqi-unit">µg/m³</span></div>
+                    <div class="aqi-data-wrap">
+                        <span class="aqi-val" id="hero-aqi">47</span>
+                        <span class="aqi-unit">µg/m³</span>
+                    </div>
                 </div>
             </div>
 
@@ -192,7 +195,7 @@
             <div class="task-footer-bar">
                 <div class="task-footer-info">Rekap darurat siap kirim</div>
                 <button class="btn-wa" onclick="exportTasksToWhatsApp()">
-                    <span class="wa-icon">↗</span>
+                    <span class="wa-icon"></span>
                     <span>Bagikan ke WhatsApp</span>
                 </button>
             </div>
